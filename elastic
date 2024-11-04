@@ -1,0 +1,66 @@
+from elasticsearch import Elasticsearch, helpers
+import pandas as pd
+
+# Connect to Elasticsearch
+es = Elasticsearch([{'host': 'localhost', 'port': 8989}])
+
+# Load the employee data (replace with the actual path to your dataset)
+employee_data = pd.read_csv("Employee Sample Data 1.csv", encoding='ISO-8859-1')
+
+# a) createCollection
+def create_collection(p_collection_name):
+    if not es.indices.exists(index=p_collection_name):
+        es.indices.create(index=p_collection_name)
+        print(f"Collection '{p_collection_name}' created.")
+    else:
+        print(f"Collection '{p_collection_name}' already exists.")
+
+# b) indexData
+def index_data(p_collection_name, p_exclude_column):
+    # Ensure the exclude column is present in the dataset
+    if p_exclude_column in employee_data.columns:
+        data = employee_data.drop(columns=[p_exclude_column])
+    else:
+        data = employee_data  # If column doesn't exist, index entire data
+
+    # Convert dataframe to list of dictionaries for bulk indexing
+    docs = data.to_dict(orient='records')
+    helpers.bulk(es, [{"_index": p_collection_name, "_source": doc} for doc in docs])
+    print(f"Data indexed in collection '{p_collection_name}' excluding '{p_exclude_column}'.")
+
+# c) searchByColumn
+def search_by_column(p_collection_name, p_column_name, p_column_value):
+    query = {
+        "query": {
+            "match": {
+                p_column_name: p_column_value
+            }
+        }
+    }
+    results = es.search(index=p_collection_name, body=query)
+    return results['hits']['hits']
+
+# d) getEmpCount
+def get_emp_count(p_collection_name):
+    count = es.count(index=p_collection_name)['count']
+    return count
+
+# e) delEmpById
+def del_emp_by_id(p_collection_name, p_employee_id):
+    es.delete(index=p_collection_name, id=p_employee_id)
+    print(f"Employee ID '{p_employee_id}' deleted from '{p_collection_name}'.")
+
+# f) getDepFacet
+def get_dep_facet(p_collection_name):
+    query = {
+        "size": 0,
+        "aggs": {
+            "department_counts": {
+                "terms": {
+                    "field": "Department.keyword"  # Assumes 'Department' field is keyword-type in ES
+                }
+            }
+        }
+    }
+    results = es.search(index=p_collection_name, body=query)
+    return results['aggregations']['department_counts']['buckets']
